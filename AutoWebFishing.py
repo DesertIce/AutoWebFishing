@@ -2,37 +2,46 @@ import pyautogui
 import time
 import cv2
 import numpy as np
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent
+SCREENSHOTS_DIR = BASE_DIR / "Screenshots"
+
+
+def screenshot_path(filename):
+    return str(SCREENSHOTS_DIR / filename)
 
 # Path to reference images
 # stuff related to fishing
-start_image = r'...\Screenshots\start.jpg'
-catch_image = r'...\Screenshots\catch.jpg'
-stop_image = r'...\Screenshots\stop.jpg'
-reel1_image = r'...\Screenshots\reel1.jpg'
-reel2_image = r'...\reel2.jpg'
+start_image = screenshot_path("start.jpg")
+catch_image = screenshot_path("catch.jpg")
+stop_image = screenshot_path("stop.jpg")
+reel1_image = screenshot_path("reel1.jpg")
+reel2_image = screenshot_path("reel2.jpg")
 
 # stuff related to inventory
-wormx_image = r'...\Screenshots\Wormsx.jpg'
-worm0_image = r'...\Screenshots\Worms0.jpg'
-cricketx_image = r'...\Screenshots\Cricketsx.jpg'
-cricket0_image = r'...\Screenshots\Crickets0.jpg'
-leechx_image = r'...\Screenshots\Leechesx.jpg'
-leech0_image = r'...\Screenshots\Leeches0.jpg'
-minnowx_image = r'...\Screenshots\Minnowsx.jpg'
-minnow0_image = r'...\Screenshots\Minnows0.jpg'
-squidx_image = r'...\Screenshots\Squidsx.jpg'
-squid0_image = r'...\Screenshots\Squids0.jpg'
-nautilusx_image = r'...\Screenshots\Nautilusesx.jpg'
-nautilus0_image = r'...\Screenshots\Nautiluses0.jpg'
+wormx_image = screenshot_path("Wormsx.jpg")
+worm0_image = screenshot_path("Worms0.jpg")
+cricketx_image = screenshot_path("Cricketsx.jpg")
+cricket0_image = screenshot_path("Crickets0.jpg")
+leechx_image = screenshot_path("Leechesx.jpg")
+leech0_image = screenshot_path("Leeches0.jpg")
+minnowx_image = screenshot_path("Minnowsx.jpg")
+minnow0_image = screenshot_path("Minnows0.jpg")
+squidx_image = screenshot_path("Squidsx.jpg")
+squid0_image = screenshot_path("Squids0.jpg")
+nautilusx_image = screenshot_path("Nautilusesx.jpg")
+nautilus0_image = screenshot_path("Nautiluses0.jpg")
 
 # stuff for shopping
-shopWorm_image = r'...\Screenshots\shopWorm.jpg'
-shopCricket_image = r'...\Screenshots\shopCricket.jpg'
-shopLeech_image = r'...\Screenshots\shopLeech.jpg'
-shopMinnow_image = r'...\Screenshots\shopMinnow.jpg'
-shopSquid_image = r'...\Screenshots\shopSquid.jpg'
-shopNautilus_image = r'...\Screenshots\shopNautilus.jpg'
-sell_image = r'...\Screenshots\sellall.jpg'
+shopWorm_image = screenshot_path("shopWorm.jpg")
+shopCricket_image = screenshot_path("shopCricket.jpg")
+shopLeech_image = screenshot_path("shopLeech.jpg")
+shopMinnow_image = screenshot_path("shopMinnow.jpg")
+shopSquid_image = screenshot_path("shopSquid.jpg")
+shopNautilus_image = screenshot_path("shopNautilus.jpg")
+sell_image = screenshot_path("sellall.jpg")
 
 
 # Function to perform image matching
@@ -46,12 +55,19 @@ def find_image_on_screen(image_path, threshold=0.8):
         print(f"Error: Could not load image at {image_path}")
         return None  # Return None if the image couldn't be loaded
 
+    screenshot_height, screenshot_width = screenshot.shape
+    ref_height, ref_width = reference_image.shape
+    if ref_height > screenshot_height or ref_width > screenshot_width:
+        print(
+            f"Error: Reference image at {image_path} is larger than the current screenshot."
+        )
+        return None
+
     result = cv2.matchTemplate(screenshot, reference_image, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(result)  # Get best match
 
     if max_val >= threshold:
         # Calculate center of the matched image
-        ref_height, ref_width = reference_image.shape
         center_x = max_loc[0] + ref_width // 2
         center_y = max_loc[1] + ref_height // 2
         return center_x, center_y  # Return the center coordinates

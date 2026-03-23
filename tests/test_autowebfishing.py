@@ -217,7 +217,22 @@ def test_window_automation_targets_named_window_for_input_and_capture():
     assert ("press_key", 42, "e") in backend.calls
     assert ("click", 42, 100, 150) in backend.calls
     assert ("mouse_down", 42, 200, 210) in backend.calls
-    assert ("mouse_up", 42, None, None) in backend.calls
+    assert ("mouse_up", 42, 200, 210) in backend.calls
+
+
+def test_window_automation_releases_mouse_at_last_press_coordinates():
+    backend = DummyWindowBackend()
+    automation = awf.WindowAutomation(
+        awf.WindowTarget(executable_name="webfishing.exe"),
+        backend=backend,
+        logger=lambda _: None,
+    )
+
+    automation.mouseDown(200, 210)
+    automation.mouseUp()
+
+    assert ("mouse_down", 42, 200, 210) in backend.calls
+    assert ("mouse_up", 42, 200, 210) in backend.calls
 
 
 def test_window_target_matches_executable_name_and_file_description():
@@ -482,3 +497,34 @@ def test_run_step_recovers_immediately_after_hook_timeout():
 
     assert bot.run_step() == "hook_timeout_recovered"
     assert events == ["recover"]
+
+
+def test_is_any_visible_checks_multiple_templates_against_one_captured_frame():
+    rng = np.random.default_rng(4321)
+    missing_reference = rng.integers(0, 256, size=(6, 6), dtype=np.uint8)
+    present_reference = rng.integers(0, 256, size=(6, 6), dtype=np.uint8)
+
+    first_frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    first_frame[14:20, 18:24, :] = present_reference[:, :, None]
+    second_frame = np.zeros((40, 40, 3), dtype=np.uint8)
+
+    class AlternatingScreenshotAutomation(DummyAutomation):
+        def __init__(self):
+            super().__init__()
+            self.capture_count = 0
+
+        def screenshot(self):
+            self.capture_count += 1
+            return first_frame if self.capture_count == 1 else second_frame
+
+    references = {
+        "missing.jpg": missing_reference,
+        "present.jpg": present_reference,
+    }
+    automation = AlternatingScreenshotAutomation()
+    bot = awf.FishingBot(automation=automation, sleeper=lambda _: None, logger=lambda _: None)
+
+    with patch.object(awf.cv2, "imread", side_effect=lambda path, _: references[path]):
+        assert bot.is_any_visible(["missing.jpg", "present.jpg"], threshold=0.99) is True
+
+    assert automation.capture_count == 1

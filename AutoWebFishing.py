@@ -381,6 +381,7 @@ class WindowAutomation:
         self.refresh_interval = refresh_interval
         self.clock = clock
         self.last_resolve_at = 0.0
+        self.last_mouse_position = None
 
     def _window_is_valid(self):
         if self.hwnd is None:
@@ -423,6 +424,7 @@ class WindowAutomation:
             width, height = self.size()
             x = width // 2
             y = height // 2
+        self.last_mouse_position = (x, y)
         self.backend.click(self._resolve_window(), x, y)
 
     def mouseDown(self, x=None, y=None):
@@ -430,14 +432,16 @@ class WindowAutomation:
             width, height = self.size()
             x = width // 2
             y = height // 2
+        self.last_mouse_position = (x, y)
         self.backend.mouse_down(self._resolve_window(), x, y)
 
     def mouseUp(self, x=None, y=None):
+        if (x is None or y is None) and self.last_mouse_position is not None:
+            x, y = self.last_mouse_position
         self.backend.mouse_up(self._resolve_window(), x, y)
 
 
-def capture_frame(screenshot_provider=None):
-    capture = screenshot_provider() if screenshot_provider else pyautogui.screenshot()
+def normalize_frame(capture):
     frame = capture if isinstance(capture, np.ndarray) else np.array(capture)
 
     if frame.ndim == 2:
@@ -447,15 +451,18 @@ def capture_frame(screenshot_provider=None):
     return cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
 
+def capture_frame(screenshot_provider=None):
+    capture = screenshot_provider() if screenshot_provider else pyautogui.screenshot()
+    return normalize_frame(capture)
+
+
 # Function to perform image matching
-def find_image_on_screen(
+def find_image_in_frame(
     image_path,
+    screenshot,
     threshold=0.8,
     scale_factors=TEMPLATE_SCALE_FACTORS,
-    screenshot_provider=None,
 ):
-    screenshot = capture_frame(screenshot_provider=screenshot_provider)
-
     reference_image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if reference_image is None:
         print(f"Error: Could not load image at {image_path}")
@@ -502,6 +509,39 @@ def find_image_on_screen(
         print(
             f"Error: Reference image at {image_path} is larger than the current screenshot for all configured scales."
         )
+    return None
+
+
+def find_image_on_screen(
+    image_path,
+    threshold=0.8,
+    scale_factors=TEMPLATE_SCALE_FACTORS,
+    screenshot_provider=None,
+):
+    screenshot = capture_frame(screenshot_provider=screenshot_provider)
+    return find_image_in_frame(
+        image_path,
+        screenshot,
+        threshold=threshold,
+        scale_factors=scale_factors,
+    )
+
+
+def find_any_visible_image_on_screen(
+    image_paths,
+    threshold=0.8,
+    scale_factors=TEMPLATE_SCALE_FACTORS,
+    screenshot_provider=None,
+):
+    screenshot = capture_frame(screenshot_provider=screenshot_provider)
+    for image_path in image_paths:
+        if find_image_in_frame(
+            image_path,
+            screenshot,
+            threshold=threshold,
+            scale_factors=scale_factors,
+        ) is not None:
+            return image_path
     return None
 
 
@@ -713,6 +753,7 @@ class FishingBot:
         self.consecutive_capture_failures = 0
         self.consecutive_input_failures = 0
         self.screenshot_provider = getattr(self.automation, "screenshot", None)
+        self.uses_default_finder = finder is None
         if finder is None:
             self.finder = lambda image_path, threshold=0.8: find_image_on_screen(
                 image_path,
@@ -891,15 +932,38 @@ class FishingBot:
                 self.stop_requested = True
             return False
 
+    def find_visible_image(self, image_paths, threshold=0.8):
+        if self.uses_default_finder and self.screenshot_provider is not None:
+            try:
+                visible_image = find_any_visible_image_on_screen(
+                    image_paths,
+                    threshold=threshold,
+                    screenshot_provider=self.screenshot_provider,
+                )
+                self.consecutive_capture_failures = 0
+                return visible_image
+            except Exception as exc:
+                self.consecutive_capture_failures += 1
+                self.log(f"Capture failure while checking {image_paths}: {exc}")
+                if self.consecutive_capture_failures >= self.config.max_consecutive_capture_failures:
+                    self._maybe_save_snapshot("capture_failure", force=True)
+                    self.stop_requested = True
+                return None
+
+        for image_path in image_paths:
+            if self.is_visible(image_path, threshold=threshold):
+                return image_path
+        return None
+
     def is_any_visible(self, image_paths, threshold=0.8):
-        return any(self.is_visible(image_path, threshold=threshold) for image_path in image_paths)
+        return self.find_visible_image(image_paths, threshold=threshold) is not None
 
     def wait_for_any_visible(self, image_paths, timeout, threshold=0.8):
         deadline = self.clock() + timeout
         while self.clock() <= deadline and not self.stop_requested:
-            for image_path in image_paths:
-                if self.is_visible(image_path, threshold=threshold):
-                    return image_path
+            visible_image = self.find_visible_image(image_paths, threshold=threshold)
+            if visible_image is not None:
+                return visible_image
             self._sleep_with_jitter(self.config.scan_interval)
         return None
 
